@@ -19,9 +19,6 @@ permissions:
 jobs:
   create-dev-pr:
     runs-on: ubuntu-latest
-    outputs:
-      commit_sha: ${{ steps.get-commits.outputs.latest_commit }}
-      feature_branch: ${{ github.event.inputs.feature_branch }}
 
     steps:
       - name: Checkout repository

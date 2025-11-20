@@ -56,19 +56,21 @@ jobs:
               console.log(`   Feature Branch: ${featureBranch}`);
               console.log(`   Commit SHA: ${commitSha}`);
               
-              return { commitSha, featureBranch, prTitle: pr.title };
+              // Set outputs
+              core.setOutput('commit_sha', commitSha);
+              core.setOutput('feature_branch', featureBranch);
+              core.setOutput('pr_title', pr.title);
               
             } catch (error) {
               console.error('❌ Error getting PR info:', error);
               throw new Error(`Failed to get DEV PR #${prNumber}. Make sure it exists and contains commit info.`);
             }
-        result-export: pr_info
 
       - name: Validate commit
         id: validate-commit
         run: |
-          COMMIT_SHA="${{ fromJson(steps.get-pr-info.outputs.result).commitSha }}"
-          FEATURE_BRANCH="${{ fromJson(steps.get-pr-info.outputs.result).featureBranch }}"
+          COMMIT_SHA="${{ steps.get-pr-info.outputs.commit_sha }}"
+          FEATURE_BRANCH="${{ steps.get-pr-info.outputs.feature_branch }}"
           
           echo "Validating commit: $COMMIT_SHA from $FEATURE_BRANCH"
           
@@ -85,11 +87,10 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const prInfo = ${{ steps.get-pr-info.outputs.result }};
+            const commitSha = '${{ steps.get-pr-info.outputs.commit_sha }}';
+            const featureBranch = '${{ steps.get-pr-info.outputs.feature_branch }}';
+            const prTitle = '${{ steps.get-pr-info.outputs.pr_title }}';
             const deploymentReason = '${{ github.event.inputs.deployment_reason }}';
-            const commitSha = prInfo.commitSha;
-            const featureBranch = prInfo.featureBranch;
-            const prTitle = prInfo.prTitle;
             
             // Create UAT branch
             const uatBranch = `uat-${featureBranch.replace(/\//g, '-')}-${Date.now()}`;

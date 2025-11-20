@@ -1,0 +1,12 @@
+name: Make Workflows Visible
+
+on:
+  push:
+    branches: [ravi_changes]
+
+jobs:
+  make-visible:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Make workflows visible
+        run: echo "This workflow makes other workflows appear in Actions tab"

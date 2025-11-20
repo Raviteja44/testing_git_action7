@@ -1,0 +1,150 @@
+name: "2. Promote to UAT"
+
+on:
+  workflow_dispatch:
+    inputs:
+      dev_pr_number:
+        description: 'DEV PR number that was merged (find in Pull Requests tab)'
+        required: true
+        type: string
+      deployment_reason:
+        description: 'Reason for UAT promotion'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-uat-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR info from DEV PR
+        id: get-pr-info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = '${{ github.event.inputs.dev_pr_number }}';
+            
+            try {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              
+              // Extract commit SHA and feature branch from PR body
+              const body = pr.body;
+              const commitMatch = body.match(/\*\*Commit SHA:\*\* \`([a-f0-9]+)\`/);
+              const branchMatch = body.match(/\*\*Feature Branch:\*\* \`([^\`]+)\`/);
+              
+              if (!commitMatch || !branchMatch) {
+                throw new Error('Could not find commit SHA or feature branch in PR description');
+              }
+              
+              const commitSha = commitMatch[1];
+              const featureBranch = branchMatch[1];
+              
+              console.log(`✅ Found DEV PR info:`);
+              console.log(`   Feature Branch: ${featureBranch}`);
+              console.log(`   Commit SHA: ${commitSha}`);
+              
+              return { commitSha, featureBranch, prTitle: pr.title };
+              
+            } catch (error) {
+              console.error('❌ Error getting PR info:', error);
+              throw new Error(`Failed to get DEV PR #${prNumber}. Make sure it exists and contains commit info.`);
+            }
+        result-export: pr_info
+
+      - name: Validate commit
+        id: validate-commit
+        run: |
+          COMMIT_SHA="${{ fromJson(steps.get-pr-info.outputs.result).commitSha }}"
+          FEATURE_BRANCH="${{ fromJson(steps.get-pr-info.outputs.result).featureBranch }}"
+          
+          echo "Validating commit: $COMMIT_SHA from $FEATURE_BRANCH"
+          
+          # Verify commit exists and is in dev
+          git fetch origin dev
+          if ! git merge-base --is-ancestor $COMMIT_SHA origin/dev 2>/dev/null; then
+            echo "❌ Error: Commit $COMMIT_SHA is not in dev branch"
+            exit 1
+          fi
+          
+          echo "✅ Commit validated"
+
+      - name: Create UAT PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prInfo = ${{ steps.get-pr-info.outputs.result }};
+            const deploymentReason = '${{ github.event.inputs.deployment_reason }}';
+            const commitSha = prInfo.commitSha;
+            const featureBranch = prInfo.featureBranch;
+            const prTitle = prInfo.prTitle;
+            
+            // Create UAT branch
+            const uatBranch = `uat-${featureBranch.replace(/\//g, '-')}-${Date.now()}`;
+            
+            // Get current uat
+            const { data: uatRef } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: 'uat'
+            });
+            
+            // Create branch from uat
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/heads/${uatBranch}`,
+              sha: uatRef.commit.sha
+            });
+            
+            // Merge the specific commit
+            await github.rest.repos.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: uatBranch,
+              head: commitSha
+            });
+            
+            const prBody = `
+            ## 🟡 Promotion to UAT Environment
+            **Source:** ${prTitle}
+            **Feature Branch:** ${featureBranch}
+            **Commit SHA:** ${commitSha}
+            **Promotion Reason:** ${deploymentReason}
+            
+            **Verification:**
+            ✅ Deployed to DEV
+            ✅ Tested in DEV Environment
+            
+            **Approval Required:** Manager/Team Lead approval required.
+            `;
+            
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🟡 UAT: Promote ${featureBranch}`,
+              body: prBody,
+              head: uatBranch,
+              base: 'uat'
+            });
+            
+            console.log(`✅ Created UAT promotion PR: ${pr.html_url}`);
+            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: ['uat-promotion']
+            });

@@ -1,0 +1,87 @@
+name: "1. Deploy Feature to Dev"
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_branch:
+        description: 'Your feature branch name'
+        required: true
+        type: string
+      deployment_reason:
+        description: 'Reason for deployment'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-dev-pr:
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.get-commits.outputs.latest_commit }}
+      feature_branch: ${{ github.event.inputs.feature_branch }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get feature branch info
+        id: get-commits
+        run: |
+          FEATURE_BRANCH="${{ github.event.inputs.feature_branch }}"
+          git fetch origin $FEATURE_BRANCH
+          LATEST_COMMIT=$(git rev-parse origin/$FEATURE_BRANCH)
+          COMMIT_COUNT=$(git rev-list --count origin/dev..origin/$FEATURE_BRANCH 2>/dev/null || echo "0")
+          
+          echo "latest_commit=$LATEST_COMMIT" >> $GITHUB_OUTPUT
+          echo "commit_count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+          echo "✅ Feature branch: $FEATURE_BRANCH"
+          echo "📝 Latest commit: $LATEST_COMMIT"
+
+      - name: Create PR to Dev
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const featureBranch = '${{ github.event.inputs.feature_branch }}';
+            const deploymentReason = '${{ github.event.inputs.deployment_reason }}';
+            const latestCommit = '${{ steps.get-commits.outputs.latest_commit }}';
+            const commitCount = '${{ steps.get-commits.outputs.commit_count }}';
+            
+            // Store commit info in PR description for later use
+            const prBody = `
+            ## 🚀 Deployment to DEV Environment
+            **Feature Branch:** ${featureBranch}
+            **Latest Commit:** ${latestCommit}
+            **Deployment Reason:** ${deploymentReason}
+            
+            **Commit SHA:** \`${latestCommit}\`
+            **Feature Branch:** \`${featureBranch}\`
+            
+            **Save this information for UAT promotion.**
+            
+            **Approval Required:** Please review and approve.
+            `;
+            
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔵 DEV: Deploy ${featureBranch}`,
+              body: prBody,
+              head: featureBranch,
+              base: 'dev'
+            });
+            
+            console.log(`✅ Created DEV deployment PR: ${pr.html_url}`);
+            console.log(`💡 COMMIT SHA: ${latestCommit}`);
+            console.log(`💡 FEATURE BRANCH: ${featureBranch}`);
+            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: ['dev-deployment', `feature-${featureBranch.replace(/\//g, '-')}`]
+            });

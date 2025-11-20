@@ -40,13 +40,30 @@ jobs:
                 pull_number: prNumber
               });
               
-              // Extract commit SHA and feature branch from PR body
-              const body = pr.body;
-              const commitMatch = body.match(/\*\*Commit SHA:\*\* \`([a-f0-9]+)\`/);
-              const branchMatch = body.match(/\*\*Feature Branch:\*\* \`([^\`]+)\`/);
+              console.log('🔍 PR Body:', pr.body);
               
-              if (!commitMatch || !branchMatch) {
-                throw new Error('Could not find commit SHA or feature branch in PR description');
+              // Extract commit SHA and feature branch from PR body - FIXED REGEX
+              const body = pr.body;
+              
+              // Look for both possible formats
+              const commitMatch = body.match(/\*\*COMMIT_SHA:\*\* ([a-f0-9]+)/) || 
+                                 body.match(/\*\*Commit SHA:\*\* \`([a-f0-9]+)\`/) ||
+                                 body.match(/\*\*Commit SHA:\*\* ([a-f0-9]+)/);
+              
+              const branchMatch = body.match(/\*\*FEATURE_BRANCH:\*\* ([^\s]+)/) || 
+                                 body.match(/\*\*Feature Branch:\*\* \`([^\`]+)\`/) ||
+                                 body.match(/\*\*Feature Branch:\*\* ([^\s]+)/);
+              
+              if (!commitMatch) {
+                console.error('❌ Could not find commit SHA in PR description');
+                console.error('Available patterns in PR body:');
+                console.error(body);
+                throw new Error('Could not find commit SHA in PR description');
+              }
+              
+              if (!branchMatch) {
+                console.error('❌ Could not find feature branch in PR description');
+                throw new Error('Could not find feature branch in PR description');
               }
               
               const commitSha = commitMatch[1];

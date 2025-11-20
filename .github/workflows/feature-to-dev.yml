@@ -1,6 +1,10 @@
 name: "1. Deploy Feature to Dev"
 
 on:
+  # Add this for visibility (optional - can remove after testing)
+  push:
+    branches: 
+      - '**'
   workflow_dispatch:
     inputs:
       feature_branch:
@@ -11,6 +15,7 @@ on:
         description: 'Reason for deployment'
         required: true
         type: string
+
 
 permissions:
   contents: write
